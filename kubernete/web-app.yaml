@@ -18,6 +18,19 @@ spec:
       labels:
         app: web-app
     spec:
+      volumes:
+        - name: bundle-installation
+          emptyDir: {}
+    emptyDir: {}
       containers:
       - name: reverse-proxy
+        ports:
+          - containerPort: 80
+            name: "reverse-proxy"
         image: "localhost:5000/airnguru/nginx:latest"
+      - name: rails-app
+        volumeMounts:
+          - name: shared-data
+            mountPath: /usr/share/nginx/html
+        image: "localhost:5000/airnguru/rails:latest"
+        command: ["bundle", "exec", "puma", "-C", "config/puma/production.rb"]
