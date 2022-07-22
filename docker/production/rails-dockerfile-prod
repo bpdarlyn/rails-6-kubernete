@@ -8,15 +8,6 @@ ENV RACK_ENV production
 ENV NODE_ENV production
 ENV APP_PATH /app
 
-RUN bash -c "set -o pipefail && apt-get update \
-  && apt-get install -y --no-install-recommends build-essential curl git python2 tzdata \
-  && curl -sSL https://deb.nodesource.com/setup_14.x | bash - \
-  && curl -sSL https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
-  && echo 'deb https://dl.yarnpkg.com/debian/ stable main' | tee /etc/apt/sources.list.d/yarn.list \
-  && apt-get update && apt-get install -y --no-install-recommends nodejs yarn \
-  && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man \
-  && apt-get clean"
-
 WORKDIR $APP_PATH
 
 COPY Gemfile Gemfile.lock ./
@@ -37,14 +28,19 @@ ENV RAILS_ENV production
 ENV NODE_ENV production
 ENV RAILS_SERVE_STATIC_FILES true
 WORKDIR $APP_PATH
-# #
-COPY --from=builder /usr/lib /usr/lib
-# # Timezone data is required at runtime
-COPY --from=builder /usr/share/zoneinfo/ /usr/share/zoneinfo/
 #
-# # Ruby gems
+# Ruby gems
 COPY --from=builder /usr/local/bundle /usr/local/bundle
-# #
+
+RUN bash -c "set -o pipefail && apt-get update \
+  && apt-get install -y --no-install-recommends build-essential curl git python2 tzdata \
+  && curl -sSL https://deb.nodesource.com/setup_14.x | bash - \
+  && curl -sSL https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
+  && echo 'deb https://dl.yarnpkg.com/debian/ stable main' | tee /etc/apt/sources.list.d/yarn.list \
+  && apt-get update && apt-get install -y --no-install-recommends nodejs yarn \
+  && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man \
+  && apt-get clean"
+
 COPY --from=builder $APP_PATH $APP_PATH
 
-ENTRYPOINT ["/app/docker/production/entrypoint.sh"]
+ENTRYPOINT ["docker/production/entrypoint.sh"]

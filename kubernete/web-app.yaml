@@ -1,3 +1,45 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bundle-cache
+  labels:
+    app: web-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: node-modules-cache
+  labels:
+    app: web-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: precompile-cache
+  labels:
+    app: web-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,18 +61,47 @@ spec:
         app: web-app
     spec:
       volumes:
-        - name: bundle-installation
+        - name: bundle-persistent-storage
+          persistentVolumeClaim:
+            claimName: bundle-cache
+        - name: node-modules-persistent-storage
+          persistentVolumeClaim:
+            claimName: node-modules-cache
+        - name: precompile-persistent-storage
+          persistentVolumeClaim:
+            claimName: precompile-cache
+        - name: public-app
           emptyDir: {}
-    emptyDir: {}
+        - name: tmp-app
+          emptyDir: {}
+
       containers:
       - name: reverse-proxy
+        volumeMounts:
+          - name: tmp-app
+            mountPath: /app/tmp
+          - name: public-app
+            mountPath: /app/public
+
         ports:
           - containerPort: 80
             name: "reverse-proxy"
         image: "localhost:5000/airnguru/nginx:latest"
       - name: rails-app
         volumeMounts:
-          - name: shared-data
-            mountPath: /usr/share/nginx/html
+          - name: bundle-persistent-storage
+            mountPath: /app/vendor/gems
+          - name: node-modules-persistent-storage
+            mountPath: /app/node_modules
+          - name: precompile-persistent-storage
+            mountPath: /app/tmp/cache
+          - name: tmp-app
+            mountPath: /app/tmp
+          - name: public-app
+            mountPath: /app/public
         image: "localhost:5000/airnguru/rails:latest"
+        env:
+          - name: RAILS_MASTER_KEY
+            value: "a55eb4bc75a5d34ddf92c2c6eb7ba19a"
+
         command: ["bundle", "exec", "puma", "-C", "config/puma/production.rb"]

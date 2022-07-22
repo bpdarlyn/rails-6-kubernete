@@ -1,9 +1,7 @@
-# bundle install
-# yarn install --frozen-lockfile --non-interactive --production
+#!/usr/bin/env bash
 
-# bundle exec rails assets:precompile
-# bundle exec rails db:migrate
-
-
-# cmd="$@"
-# exec $cmd
+bundle install
+bundle exec rails assets:precompile
+bundle exec rails db:migrate
+cmd="$@"
+exec $cmd
