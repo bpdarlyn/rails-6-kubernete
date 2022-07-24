@@ -441,6 +441,7 @@ Resources:
     Metadata:
       Comment: Subnet 01
     Properties:
+      MapPublicIpOnLaunch: true
       AvailabilityZone: !Select
         - 0
         - Fn::GetAZs: !Ref 'AWS::Region'
@@ -448,15 +449,17 @@ Resources:
         Ref: PublicSubnet01Block
       VpcId:
         Ref: VPC
-      MapPublicIpOnLaunch: 'true'
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-PublicSubnet01"
+        - Key: kubernetes.io/role/elb
+          Value: 1
   PublicSubnet02:
     Type: AWS::EC2::Subnet
     Metadata:
       Comment: Subnet 02
     Properties:
+      MapPublicIpOnLaunch: true
       AvailabilityZone: !Select
         - 1
         - Fn::GetAZs: !Ref 'AWS::Region'
@@ -464,10 +467,11 @@ Resources:
         Ref: PublicSubnet02Block
       VpcId:
         Ref: VPC
-      MapPublicIpOnLaunch: 'true'
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-PublicSubnet02"
+        - Key: kubernetes.io/role/elb
+          Value: 1
   PrivateSubnet01:
     Type: AWS::EC2::Subnet
     Metadata:
@@ -527,6 +531,16 @@ Resources:
     Properties:
       GroupDescription: Cluster communication with worker nodes
       VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - FromPort: 0
+          IpProtocol: -1
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - FromPort: 0
+          IpProtocol: -1
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
   EKSCluster:
     Type: AWS::EKS::Cluster
     Properties:
@@ -534,6 +548,8 @@ Resources:
       RoleArn:
         "Fn::GetAtt": [ "EKSIAMRole", "Arn" ]
       ResourcesVpcConfig:
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: true
         SecurityGroupIds:
           - !Ref ControlPlaneSecurityGroup
         SubnetIds:
@@ -541,7 +557,7 @@ Resources:
           - !Ref PublicSubnet02
           - !Ref PrivateSubnet01
           - !Ref PrivateSubnet02
-    DependsOn: [ EKSIAMRole, PublicSubnet01, PublicSubnet02, PrivateSubnet01, PrivateSubnet02, ControlPlaneSecurityGroup ]
+    DependsOn: [ EKSIAMRole, PrivateSubnet01, PrivateSubnet02, ControlPlaneSecurityGroup ]
   NodeRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -568,122 +584,128 @@ Resources:
         - Key: !Sub kubernetes.io/cluster/${EKSClusterName}
           Value: owned
       VpcId: !Ref VPC
-  NodeSecurityGroupIngress:
-    Type: "AWS::EC2::SecurityGroupIngress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow node to communicate with each other
-      FromPort: 0
-      GroupId: !Ref NodeSecurityGroup
-      IpProtocol: "-1"
-      SourceSecurityGroupId: !Ref NodeSecurityGroup
-      ToPort: 65535
-  ClusterControlPlaneSecurityGroupIngress:
-    Type: "AWS::EC2::SecurityGroupIngress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow pods to communicate with the cluster API Server
-      FromPort: 443
-      GroupId: !Ref ControlPlaneSecurityGroup
-      IpProtocol: tcp
-      SourceSecurityGroupId: !Ref NodeSecurityGroup
-      ToPort: 443
-  ControlPlaneEgressToNodeSecurityGroup:
-    Type: "AWS::EC2::SecurityGroupEgress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow the cluster control plane to communicate with worker Kubelet and pods
-      DestinationSecurityGroupId: !Ref NodeSecurityGroup
-      FromPort: 1025
-      GroupId: !Ref ControlPlaneSecurityGroup
-      IpProtocol: tcp
-      ToPort: 65535
-  ControlPlaneEgressToNodeSecurityGroupOn443:
-    Type: "AWS::EC2::SecurityGroupEgress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
-      DestinationSecurityGroupId: !Ref NodeSecurityGroup
-      FromPort: 443
-      GroupId: !Ref ControlPlaneSecurityGroup
-      IpProtocol: tcp
-      ToPort: 443
-  NodeSecurityGroupFromControlPlaneIngress:
-    Type: "AWS::EC2::SecurityGroupIngress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
-      FromPort: 1025
-      GroupId: !Ref NodeSecurityGroup
-      IpProtocol: tcp
-      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
-      ToPort: 65535
-  NodeSecurityGroupFromControlPlaneOn443Ingress:
-    Type: "AWS::EC2::SecurityGroupIngress"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
-      FromPort: 443
-      GroupId: !Ref NodeSecurityGroup
-      IpProtocol: tcp
-      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
-      ToPort: 443
-# TODO: We need to fix it, working with NetworkInterfaces we have a bug on CF platform
-  NodeLaunchTemplate:
-    Type: "AWS::EC2::LaunchTemplate"
-    DependsOn: NodeSecurityGroup
-    Properties:
-      LaunchTemplateData:
-        BlockDeviceMappings:
-          - DeviceName: /dev/xvda
-            Ebs:
-              DeleteOnTermination: true
-              VolumeSize: !Ref NodeVolumeSize
-              VolumeType: gp2
-        ImageId: !If
-          - HasNodeImageId
-          - Ref: NodeImageId
-          - Ref: NodeImageIdSSMParam
-        InstanceType: !Ref NodeInstanceType
-        NetworkInterfaces:
-          - AssociatePublicIpAddress: true
-            DeviceIndex: 0
-            Groups:
-              - !Ref NodeSecurityGroup
-            InterfaceType: interface
-            NetworkCardIndex: 0
-#        SecurityGroupIds:
-#          - Ref: NodeSecurityGroup
-        KeyName: !Ref KeyName
+      SecurityGroupIngress:
+        - FromPort: 0
+          IpProtocol: -1
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - FromPort: 0
+          IpProtocol: -1
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+#  NodeSecurityGroupIngress:
+#    Type: "AWS::EC2::SecurityGroupIngress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow node to communicate with each other
+#      FromPort: 0
+#      GroupId: !Ref NodeSecurityGroup
+#      IpProtocol: "-1"
+#      SourceSecurityGroupId: !Ref NodeSecurityGroup
+#      ToPort: 65535
+#  ClusterControlPlaneSecurityGroupIngress:
+#    Type: "AWS::EC2::SecurityGroupIngress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow pods to communicate with the cluster API Server
+#      FromPort: 443
+#      GroupId: !Ref ControlPlaneSecurityGroup
+#      IpProtocol: tcp
+#      SourceSecurityGroupId: !Ref NodeSecurityGroup
+#      ToPort: 443
+#  ControlPlaneEgressToNodeSecurityGroup:
+#    Type: "AWS::EC2::SecurityGroupEgress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow the cluster control plane to communicate with worker Kubelet and pods
+#      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+#      FromPort: 1025
+#      GroupId: !Ref ControlPlaneSecurityGroup
+#      IpProtocol: tcp
+#      ToPort: 65535
+#  ControlPlaneEgressToNodeSecurityGroupOn443:
+#    Type: "AWS::EC2::SecurityGroupEgress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow the cluster control plane to communicate with pods running extension API servers on port 443
+#      DestinationSecurityGroupId: !Ref NodeSecurityGroup
+#      FromPort: 443
+#      GroupId: !Ref ControlPlaneSecurityGroup
+#      IpProtocol: tcp
+#      ToPort: 443
+#  NodeSecurityGroupFromControlPlaneIngress:
+#    Type: "AWS::EC2::SecurityGroupIngress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow worker Kubelets and pods to receive communication from the cluster control plane
+#      FromPort: 1025
+#      GroupId: !Ref NodeSecurityGroup
+#      IpProtocol: tcp
+#      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+#      ToPort: 65535
+#  NodeSecurityGroupFromControlPlaneOn443Ingress:
+#    Type: "AWS::EC2::SecurityGroupIngress"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      Description: Allow pods running extension API servers on port 443 to receive communication from cluster control plane
+#      FromPort: 443
+#      GroupId: !Ref NodeSecurityGroup
+#      IpProtocol: tcp
+#      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+#      ToPort: 443
+#  NodeLaunchTemplate:
+#    Type: "AWS::EC2::LaunchTemplate"
+#    DependsOn: NodeSecurityGroup
+#    Properties:
+#      LaunchTemplateData:
+#        BlockDeviceMappings:
+#          - DeviceName: /dev/xvda
+#            Ebs:
+#              DeleteOnTermination: true
+#              VolumeSize: !Ref NodeVolumeSize
+#              VolumeType: gp2
+#        ImageId: !If
+#          - HasNodeImageId
+#          - Ref: NodeImageId
+#          - Ref: NodeImageIdSSMParam
+#        InstanceType: !Ref NodeInstanceType
+#        NetworkInterfaces:
+#          - DeviceIndex: 0
+#            Groups:
+#              - !Ref NodeSecurityGroup
+#        KeyName: !Ref KeyName
   NodeGroup:
     Type: "AWS::EKS::Nodegroup"
     DependsOn:
       - EKSCluster
       - NodeSecurityGroup
     Properties:
+      AmiType: AL2_x86_64
       CapacityType: ON_DEMAND
       ClusterName: !Ref EKSClusterName
-      ForceUpdateEnabled: true
-# TODO: we need to fix it check above on
-      LaunchTemplate:
-        Id: !Ref NodeLaunchTemplate
-#      DiskSize: !Ref NodeVolumeSize
-#      AmiType: AL2_x86_64
-#      RemoteAccess:
-#        Ec2SshKey: !Ref KeyName
-#      InstanceTypes:
-#        - !Ref NodeInstanceType
+      DiskSize: !Ref NodeVolumeSize
+      InstanceTypes:
+        - !Ref NodeInstanceType
+#      LaunchTemplate:
+#        Id: !Ref NodeLaunchTemplate
       NodegroupName: !Ref NodeGroupName
       NodeRole: !GetAtt NodeRole.Arn
+#      Tags:
+#          Key: !Sub kubernetes.io/cluster/${EKSClusterName}
+#          Value: owned
+      RemoteAccess:
+        Ec2SshKey: !Ref KeyName
+        SourceSecurityGroups:
+          - !Ref NodeSecurityGroup
+          - !Ref ControlPlaneSecurityGroup
       ScalingConfig:
         MaxSize: !Ref NodeAutoScalingGroupMaxSize
         MinSize: !Ref NodeAutoScalingGroupMinSize
         DesiredSize: !Ref NodeAutoScalingGroupDesiredCapacity
       Subnets:
-        - !Ref PublicSubnet01
-#        - !Ref PublicSubnet02
-#        - !Ref PrivateSubnet01
-#        - !Ref PrivateSubnet02
+        - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
       UpdateConfig:
         MaxUnavailable: 1
 
