@@ -40,6 +40,42 @@ spec:
       storage: 1Gi
 
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-for-rails
+  labels:
+    app: web-app
+  annotations:
+    node-type: NodePort
+spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      nodePort: 30001
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: web-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-for-rails
+  labels:
+    app: web-app
+  annotations:
+    node-type: LoadBalancer
+spec:
+  type: NodePort
+  ports:
+    - port: 9000
+      targetPort: 8080
+  selector:
+    app: web-app
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
